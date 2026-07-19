@@ -31,6 +31,15 @@ type FeedEvent = {
   timestamp: string;
 };
 
+type ActivityLogEntry = {
+  id: string;
+  event_type: string;
+  source: string;
+  flight_number: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+};
+
 const AIRLINE_NAMES: Record<string, string> = {
   AA: "American Airlines",
   DL: "Delta Air Lines",
@@ -120,6 +129,21 @@ function buildFeedEvents(flights: TrackedFlight[]): FeedEvent[] {
   return events.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
 }
 
+function twentyFourHoursAgoIso(): string {
+  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+}
+
+function summarizeActivityDetails(details: Record<string, unknown> | null): string | null {
+  if (!details) return null;
+
+  if (typeof details.message === "string") return details.message;
+
+  const entries = Object.entries(details);
+  if (entries.length === 0) return null;
+
+  return entries.map(([key, value]) => `${key}: ${String(value)}`).join(", ");
+}
+
 function StatCard({
   label,
   value,
@@ -172,6 +196,19 @@ export default async function DashboardPage() {
   };
 
   const feedEvents = buildFeedEvents(flights).slice(0, 6);
+
+  const { data: activityData } = await supabase
+    .from("activity_log")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  const activityLog = (activityData ?? []) as ActivityLogEntry[];
+
+  const { count: eventsLast24h } = await supabase
+    .from("activity_log")
+    .select("*", { count: "exact", head: true })
+    .gte("created_at", twentyFourHoursAgoIso());
 
   return (
     <div className="min-h-screen bg-deck-navy text-slate-100">
@@ -262,7 +299,7 @@ export default async function DashboardPage() {
           </div>
         </section>
 
-        <section className="mt-10 mb-10">
+        <section className="mt-10">
           <h2 className="mb-3 font-mono text-sm tracking-[0.25em] text-deck-gold-dim">
             LIVE FEED
           </h2>
@@ -296,6 +333,43 @@ export default async function DashboardPage() {
             >
               + TRACK FLIGHT
             </button>
+          </div>
+        </section>
+
+        <section className="mt-10 mb-10">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-mono text-sm tracking-[0.25em] text-deck-gold-dim">
+              MONITORING
+            </h2>
+            <span className="font-mono text-xs text-slate-500">
+              {eventsLast24h ?? 0} EVENTS · 24H
+            </span>
+          </div>
+          <div className="rounded-lg border border-deck-gold-dim/20 bg-deck-panel p-4">
+            {activityLog.length === 0 ? (
+              <p className="p-4 text-center text-sm text-slate-500">
+                No activity recorded yet.
+              </p>
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {activityLog.map((entry) => (
+                  <li key={entry.id} className="flex items-center gap-3 py-3">
+                    <span className="w-32 shrink-0 truncate font-mono text-xs uppercase tracking-wide text-deck-gold-dim">
+                      {entry.event_type}
+                    </span>
+                    <span className="w-16 shrink-0 font-mono text-xs text-deck-gold">
+                      {entry.flight_number ?? "—"}
+                    </span>
+                    <span className="flex-1 truncate text-sm text-slate-300">
+                      {summarizeActivityDetails(entry.details) ?? entry.source}
+                    </span>
+                    <span className="shrink-0 font-mono text-xs text-slate-500">
+                      {formatRelativeTime(entry.created_at)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
       </div>
