@@ -24,6 +24,12 @@ export async function createClient() {
           }
         },
       },
+      global: {
+        // Never let this client's requests be served from any fetch cache
+        // (Next.js Data Cache, CDN, etc.) — auth/session responses must
+        // always be per-request, regardless of how the route is classified.
+        fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }),
+      },
     },
   );
 }

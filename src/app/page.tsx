@@ -2,6 +2,12 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ArrowRightIcon, MailIcon, PlaneMark, WhatsAppIcon } from "@/components/icons";
 
+// This page reads the caller's session and renders customer data
+// (email/WhatsApp numbers) gated on it, so it must never be static or
+// cached — force this explicitly rather than relying on cookies() usage
+// being inferred as a dynamic API by the build.
+export const dynamic = "force-dynamic";
+
 type FlightStatus = "on_time" | "delayed" | "cancelled";
 
 type TrackedFlight = {
@@ -140,9 +146,13 @@ export default async function DashboardPage() {
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  // Fail closed: any error resolving the session is treated the same as
+  // no session at all, rather than letting an unexpected auth response
+  // fall through to rendering the dashboard.
+  if (userError || !user) {
     redirect("/login");
   }
 
