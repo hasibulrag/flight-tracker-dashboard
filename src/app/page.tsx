@@ -8,7 +8,16 @@ import { ArrowRightIcon, MailIcon, PlaneMark, WhatsAppIcon } from "@/components/
 // being inferred as a dynamic API by the build.
 export const dynamic = "force-dynamic";
 
-type FlightStatus = "on_time" | "delayed" | "cancelled";
+type FlightStatus =
+  | "on_time"
+  | "delayed"
+  | "cancelled"
+  | "active"
+  | "scheduled"
+  | "landed"
+  | "diverted"
+  | "incident"
+  | "unknown";
 
 type TrackedFlight = {
   id: string;
@@ -76,7 +85,35 @@ const STATUS_BADGES: Record<FlightStatus, { label: string; classes: string }> = 
     label: "CANCELLED",
     classes: "border-red-400/30 bg-red-400/10 text-red-400",
   },
+  active: {
+    label: "ACTIVE",
+    classes: "border-sky-400/30 bg-sky-400/10 text-sky-400",
+  },
+  scheduled: {
+    label: "SCHEDULED",
+    classes: "border-slate-400/30 bg-slate-400/10 text-slate-400",
+  },
+  landed: {
+    label: "LANDED",
+    classes: "border-teal-400/30 bg-teal-400/10 text-teal-400",
+  },
+  diverted: {
+    label: "DIVERTED",
+    classes: "border-orange-400/30 bg-orange-400/10 text-orange-400",
+  },
+  incident: {
+    label: "INCIDENT",
+    classes: "border-rose-500/30 bg-rose-500/10 text-rose-500",
+  },
+  unknown: {
+    label: "UNKNOWN",
+    classes: "border-slate-500/30 bg-slate-500/10 text-slate-500",
+  },
 };
+
+function badgeFor(status: FlightStatus): { label: string; classes: string } {
+  return STATUS_BADGES[status] ?? STATUS_BADGES.unknown;
+}
 
 function airlineFromFlightNumber(flightNumber: string): string {
   const code = flightNumber.trim().slice(0, 2).toUpperCase();
@@ -101,7 +138,7 @@ function buildFeedEvents(flights: TrackedFlight[]): FeedEvent[] {
   const events: FeedEvent[] = [];
 
   for (const flight of flights) {
-    const badge = STATUS_BADGES[flight.last_status];
+    const badge = badgeFor(flight.last_status);
     const detail =
       flight.last_status === "delayed" && flight.delay_minutes > 0
         ? `${badge.label} ${flight.delay_minutes}M`
@@ -260,7 +297,7 @@ export default async function DashboardPage() {
             ) : (
               <ul>
                 {flights.map((flight, index) => {
-                  const badge = STATUS_BADGES[flight.last_status];
+                  const badge = badgeFor(flight.last_status);
                   return (
                     <li
                       key={flight.id}
