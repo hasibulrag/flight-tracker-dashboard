@@ -145,15 +145,6 @@ function buildFeedEvents(flights: TrackedFlight[]): FeedEvent[] {
         ? `${badge.label} ${flight.delay_minutes}M`
         : badge.label;
 
-    if (flight.customer_whatsapp) {
-      events.push({
-        id: `${flight.id}-whatsapp`,
-        channel: "whatsapp",
-        message: `${flight.flight_number} ${detail} — notified via WhatsApp`,
-        timestamp: flight.last_updated,
-      });
-    }
-
     if (flight.customer_email) {
       events.push({
         id: `${flight.id}-email`,
@@ -171,12 +162,23 @@ function twentyFourHoursAgoIso(): string {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
 
-function summarizeActivityDetails(details: Record<string, unknown> | null): string | null {
-  if (!details) return null;
+function summarizeActivityDetails(details: unknown): string | null {
+  if (details == null) return null;
 
-  if (typeof details.message === "string") return details.message;
+  if (typeof details === "string") {
+    try {
+      return summarizeActivityDetails(JSON.parse(details));
+    } catch {
+      return details;
+    }
+  }
 
-  const entries = Object.entries(details);
+  if (typeof details !== "object") return String(details);
+
+  const record = details as Record<string, unknown>;
+  if (typeof record.message === "string") return record.message;
+
+  const entries = Object.entries(record);
   if (entries.length === 0) return null;
 
   return entries.map(([key, value]) => `${key}: ${String(value)}`).join(", ");
@@ -226,11 +228,14 @@ export default async function DashboardPage() {
 
   const flights = (flightsData ?? []) as TrackedFlight[];
 
+  const ON_TIME_STATUSES: FlightStatus[] = ["on_time", "active", "scheduled", "landed"];
+  const CANCELLED_STATUSES: FlightStatus[] = ["cancelled", "diverted", "incident", "unknown"];
+
   const stats = {
     tracked: flights.length,
-    onTime: flights.filter((f) => f.last_status === "on_time").length,
+    onTime: flights.filter((f) => ON_TIME_STATUSES.includes(f.last_status)).length,
     delayed: flights.filter((f) => f.last_status === "delayed").length,
-    cancelled: flights.filter((f) => f.last_status === "cancelled").length,
+    cancelled: flights.filter((f) => CANCELLED_STATUSES.includes(f.last_status)).length,
   };
 
   const feedEvents = buildFeedEvents(flights).slice(0, 6);
