@@ -1,0 +1,365 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "df58ceb3-5727-45a1-ba28-d19805b8b8ae",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1008,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://YOUR_SUPABASE_PROJECT_REF.supabase.co/rest/v1/tracked_flights",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "active",
+              "value": "eq.true"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2692cc24-ef15-4230-8546-0c44b049bb16",
+      "name": "Get Tracked Flights (Supabase)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -784,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "39d9c44f-3ce6-408f-8111-1cbdfdb1b323",
+      "name": "Loop Over Flights",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -192,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://api.aviationstack.com/v1/flights",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_key",
+              "value": "YOUR_AVIATIONSTACK_API_KEY"
+            },
+            {
+              "name": "flight_iata",
+              "value": "={{ $json.flight_number }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "7201d0ec-0a6c-4b0c-be1e-f9d4b99f2c9e",
+      "name": "Check Flight Status (Aviationstack)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -512,
+        48
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract current status from Aviationstack response and pair with the tracked flight record\nconst raw = $input.first().json;\nconst flightData = raw && raw.data && raw.data[0] ? raw.data[0] : null;\nconst tracked = $('Loop Over Flights').item.json;\n\nif (raw && raw.error) {\n  // The Aviationstack call failed even after retries - skip this flight for\n  // this cycle, it will just be picked up again next run.\n  return [{ json: { skip: true, flight_number: tracked.flight_number, api_error: true } }];\n}\n\nif (!flightData) {\n  return [{ json: { skip: true, flight_number: tracked.flight_number } }];\n}\n\nconst currentStatus = flightData.flight_status || 'unknown';\nconst gate = flightData.departure && flightData.departure.gate ? flightData.departure.gate : null;\nconst delayMinutes = flightData.departure && flightData.departure.delay ? flightData.departure.delay : 0;\nconst terminalStatuses = ['landed', 'cancelled'];\n\nreturn [{\n  json: {\n    flight_id: tracked.id,\n    flight_number: tracked.flight_number,\n    customer_email: tracked.customer_email,\n    customer_whatsapp: tracked.customer_whatsapp,\n    previous_status: tracked.last_status || 'unknown',\n    current_status: currentStatus,\n    gate: gate,\n    delay_minutes: delayMinutes,\n    status_changed: currentStatus !== (tracked.last_status || 'unknown'),\n    still_active: !terminalStatuses.includes(currentStatus)\n  }\n}];"
+      },
+      "id": "b116980f-a1fd-4e82-8ae2-58ba5eec35ae",
+      "name": "Compare Status (Code)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status_changed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "id": "bd200280-46cc-4d76-9554-89a412f73c61"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "047796f3-0893-453a-8837-41ca433e1eb9",
+      "name": "IF Status Changed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        64,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "activity_log",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "event_type",
+              "fieldValue": "status_checked"
+            },
+            {
+              "fieldId": "source",
+              "fieldValue": "n8n"
+            },
+            {
+              "fieldId": "flight_number",
+              "fieldValue": "={{ $json.flight_number }}"
+            },
+            {
+              "fieldId": "details",
+              "fieldValue": "={{ JSON.stringify({previous_status: $json.previous_status, new_status: $json.current_status, delay_minutes: $json.delay_minutes}) }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        544,
+        160
+      ],
+      "id": "384ca27b-6de7-41c2-bae9-aefa0c2f737d",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_WITH_YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Your Supabase Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tracked_flights",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Compare Status (Code)').item.json.flight_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "last_status",
+              "fieldValue": "={{ $('Compare Status (Code)').item.json.current_status }}"
+            },
+            {
+              "fieldId": "last_updated",
+              "fieldValue": "={{ $now.toISO() }}"
+            },
+            {
+              "fieldId": "active",
+              "fieldValue": "={{ $('Compare Status (Code)').item.json.still_active }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -32
+      ],
+      "id": "e5b03851-b630-4da3-b042-1b5835bd1902",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_WITH_YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Your Supabase Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.customer_email }}",
+        "subject": "=Flight {{ $json.flight_number }} Status Update",
+        "message": "=<div style=\"font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden;\">\n  <div style=\"background-color: #0f172a; padding: 22px; text-align: center;\">\n    <span style=\"color: #f5a623; font-size: 18px; font-weight: bold; letter-spacing: 2px;\">✈ FLIGHT DECK</span>\n    <div style=\"color: #94a3b8; font-size: 10px; letter-spacing: 1px; margin-top: 4px;\">DIPTYAI OPERATIONS</div>\n  </div>\n  <div style=\"padding: 24px;\">\n    <div style=\"text-align: center; margin-bottom: 20px;\">\n      <div style=\"font-size: 22px; font-weight: bold; color: #0f172a;\">{{ $json.flight_number }}</div>\n      <div style=\"display:inline-block;margin-top:10px;padding:6px 18px;border-radius:20px;font-weight:bold;font-size:12px;letter-spacing:0.5px;background-color:{{ $json.current_status === 'cancelled' ? '#fee2e2' : $json.current_status === 'delayed' ? '#fef3c7' : '#d1fae5' }};color:{{ $json.current_status === 'cancelled' ? '#dc2626' : $json.current_status === 'delayed' ? '#d97706' : '#16a766' }};\">{{ $json.current_status.toUpperCase() }}</div>\n    </div>\n    <table style=\"width: 100%; border-collapse: collapse; font-size: 14px; color: #334155;\">\n      <tr>\n        <td style=\"padding: 10px 0; color: #94a3b8;\">Previous Status</td>\n        <td style=\"padding: 10px 0; text-align: right; font-weight: 600;\">{{ $json.previous_status }}</td>\n      </tr>\n      <tr style=\"border-top: 1px solid #f1f5f9;\">\n        <td style=\"padding: 10px 0; color: #94a3b8;\">Gate</td>\n        <td style=\"padding: 10px 0; text-align: right; font-weight: 600;\">{{ $json.gate }}</td>\n      </tr>\n      <tr style=\"border-top: 1px solid #f1f5f9;\">\n        <td style=\"padding: 10px 0; color: #94a3b8;\">Delay</td>\n        <td style=\"padding: 10px 0; text-align: right; font-weight: 600;\">{{ $json.delay_minutes }} min</td>\n      </tr>\n    </table>\n  </div>\n  <div style=\"background-color: #f8fafc; padding: 14px 24px; text-align: center; font-size: 11px; color: #94a3b8;\">\n    Automated update from DiptyAI Flight Tracker\n  </div>\n</div>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        560,
+        480
+      ],
+      "id": "21128439-82b9-4c39-af9d-c871a5ff02ed",
+      "name": "Send a message",
+      "webhookId": "a91f624a-9123-4ed3-9114-ec167fffd9b6",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Your Gmail Credential"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Tracked Flights (Supabase)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tracked Flights (Supabase)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Flights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Flights": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Check Flight Status (Aviationstack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Flight Status (Aviationstack)": {
+      "main": [
+        [
+          {
+            "node": "Compare Status (Code)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare Status (Code)": {
+      "main": [
+        [
+          {
+            "node": "IF Status Changed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Status Changed": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Flights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        []
+      ]
+    },
+    "Send a message": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
