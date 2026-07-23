@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ArrowRightIcon, MailIcon, PlaneMark, WhatsAppIcon } from "@/components/icons";
+import TrackFlightModal from "@/components/TrackFlightModal";
 
 // This page reads the caller's session and renders customer data
 // (email/WhatsApp numbers) gated on it, so it must never be static or
@@ -364,12 +365,7 @@ export default async function DashboardPage() {
                 ))}
               </ul>
             )}
-            <button
-              type="button"
-              className="mt-4 w-full rounded-lg border border-dashed border-deck-gold-dim/50 px-4 py-3 font-mono text-xs tracking-[0.2em] text-deck-gold-dim transition-colors hover:border-deck-gold hover:text-deck-gold"
-            >
-              + TRACK FLIGHT
-            </button>
+            <TrackFlightModal />
           </div>
         </section>
 
